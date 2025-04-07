@@ -7,13 +7,18 @@ const app = express();
 const server = http.createServer(app);
 
 // CORS ayarları
-app.use(cors());
+app.use(cors({
+  origin: ["https://voice-chat-1-abfk.onrender.com", "http://localhost:3000"],
+  methods: ["GET", "POST"],
+  credentials: true
+}));
 
 // Socket.io setup
 const io = require("socket.io")(server, {
     cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: ["https://voice-chat-1-abfk.onrender.com", "http://localhost:3000"],
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 

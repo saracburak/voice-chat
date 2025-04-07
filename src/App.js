@@ -59,16 +59,12 @@ function App() {
   };
 
   useEffect(() => {
-<<<<<<< HEAD
-    socket.current = io("https://voice-chat-0fgk.onrender.com", {
+    socket.current = io("https://voice-chat-950j.onrender.com", {
       transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000
     });
-=======
-    socket.current = io("https://voice-chat-950j.onrender.com");
->>>>>>> 066467a9d95fb32ec77d37772a1953f36650eed5
 
     socket.current.on("connect", () => {
       console.log("Sunucuya bağlandı:", socket.current.id);
