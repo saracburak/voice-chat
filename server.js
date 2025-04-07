@@ -42,9 +42,12 @@ io.on("connection", (socket) => {
     console.log('Yeni kullanıcı bağlandı:', socket.id);
 
     socket.on('joinRoom', ({ roomId, username }) => {
+        console.log(`${username} (${socket.id}) odaya katılıyor: ${roomId}`);
+        
         // Önceki odadan çık
         const previousRoom = [...socket.rooms].find(room => rooms[room]);
         if (previousRoom) {
+            console.log(`${username} (${socket.id}) önceki odadan çıkıyor: ${previousRoom}`);
             socket.leave(previousRoom);
             rooms[previousRoom].users.delete(socket.id);
             io.to(previousRoom).emit('roomUsers',
@@ -63,9 +66,9 @@ io.on("connection", (socket) => {
         rooms[roomId].users.set(socket.id, { id: socket.id, username });
 
         // Odadaki kullanıcıları güncelle
-        io.to(roomId).emit('roomUsers',
-            Array.from(rooms[roomId].users.values())
-        );
+        const usersInRoom = Array.from(rooms[roomId].users.values());
+        console.log(`Odadaki kullanıcılar: ${JSON.stringify(usersInRoom)}`);
+        io.to(roomId).emit('roomUsers', usersInRoom);
 
         // Hoş geldin mesajı - tüm odadaki kullanıcılara gönder
         io.to(roomId).emit('message', {
@@ -76,6 +79,7 @@ io.on("connection", (socket) => {
         // Mevcut kullanıcılara yeni kullanıcıyı bildir
         rooms[roomId].users.forEach((user, userId) => {
             if (userId !== socket.id) {
+                console.log(`Yeni kullanıcıya mevcut kullanıcı bildiriliyor: ${user.username} -> ${username}`);
                 // Yeni kullanıcıya mevcut kullanıcıları bildir
                 socket.emit('userJoined', { userId, username: user.username });
                 // Mevcut kullanıcılara yeni kullanıcıyı bildir
@@ -88,6 +92,7 @@ io.on("connection", (socket) => {
         if (rooms[roomId]) {
             const user = rooms[roomId].users.get(socket.id);
             if (user) {
+                console.log(`${user.username} (${socket.id}) odadan ayrılıyor: ${roomId}`);
                 rooms[roomId].users.delete(socket.id);
                 socket.leave(roomId);
 
@@ -105,6 +110,7 @@ io.on("connection", (socket) => {
     });
 
     socket.on('chatMessage', ({ room, message, username }) => {
+        console.log(`Mesaj gönderiliyor: ${username} -> ${room}: ${message}`);
         io.to(room).emit('message', {
             username,
             text: message

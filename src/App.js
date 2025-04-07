@@ -59,11 +59,20 @@ function App() {
   };
 
   useEffect(() => {
-    socket.current = io("https://voice-chat-0fgk.onrender.com");
+    socket.current = io("https://voice-chat-0fgk.onrender.com", {
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
 
     socket.current.on("connect", () => {
+      console.log("Sunucuya bağlandı:", socket.current.id);
       setIsConnected(true);
-      console.log("Sunucuya bağlandı");
+    });
+
+    socket.current.on("connect_error", (error) => {
+      console.error("Bağlantı hatası:", error);
     });
 
     socket.current.on("message", (message) => {
@@ -76,11 +85,11 @@ function App() {
       setUsersInRoom(users);
     });
 
-    // WebRTC sinyal olayları
     socket.current.on("userJoined", ({ userId, username }) => {
-      console.log("Yeni kullanıcı katıldı:", username);
+      console.log("Yeni kullanıcı katıldı:", username, "ID:", userId);
       
       if (stream) {
+        console.log("Stream mevcut, peer bağlantısı kuruluyor...");
         const peer = new Peer({
           initiator: true,
           trickle: false,
@@ -126,6 +135,8 @@ function App() {
           ...prev,
           [userId]: peer
         }));
+      } else {
+        console.log("Stream mevcut değil, peer bağlantısı kurulamıyor");
       }
     });
 
@@ -133,6 +144,7 @@ function App() {
       console.log("Sinyal alındı:", userId);
       
       if (stream) {
+        console.log("Stream mevcut, peer bağlantısı kuruluyor...");
         const peer = new Peer({
           initiator: false,
           trickle: false,
@@ -185,6 +197,8 @@ function App() {
           ...prev,
           [userId]: peer
         }));
+      } else {
+        console.log("Stream mevcut değil, peer bağlantısı kurulamıyor");
       }
     });
 
@@ -223,6 +237,7 @@ function App() {
     }
 
     try {
+      console.log("Mikrofon erişimi isteniyor...");
       const audioStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           noiseSuppression: noiseSuppression,
@@ -230,6 +245,8 @@ function App() {
           autoGainControl: autoGainControl,
         } 
       });
+      
+      console.log("Mikrofon erişimi sağlandı");
       
       if (isPushToTalk) {
         audioStream.getAudioTracks()[0].enabled = false;
@@ -239,6 +256,7 @@ function App() {
       audioRef.current.srcObject = audioStream;
       audioRef.current.volume = volume;
 
+      console.log(`Odaya katılıyor: ${roomId}, Kullanıcı: ${username}`);
       socket.current.emit('joinRoom', { roomId, username });
       setCurrentRoom(roomId);
       setMessages([]);
