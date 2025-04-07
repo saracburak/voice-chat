@@ -59,6 +59,10 @@ function App() {
   };
 
   useEffect(() => {
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 9b57aad59e842312081fae2369c66ed6abb379fd
     socket.current = io("https://voice-chat-950j.onrender.com", {
       transports: ['websocket'],
       reconnection: true,
