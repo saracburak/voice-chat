@@ -60,7 +60,7 @@ function App() {
 
   useEffect(() => {
 <<<<<<< HEAD
-    socket.current = io("https://voice-chat-0fgk.onrender.com", {
+    socket.current = io("https://voice-chat-950j.onrender.com", {
       transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: 5,
