@@ -66,6 +66,14 @@ io.on("connection", (socket) => {
             username: 'Sistem',
             text: `${username} odaya katıldı`
         });
+
+        // Mevcut kullanıcılara yeni kullanıcıyı bildir
+        rooms[roomId].users.forEach((user, userId) => {
+            if (userId !== socket.id) {
+                socket.emit('userJoined', { userId, username: user.username });
+                io.to(userId).emit('userJoined', { userId: socket.id, username });
+            }
+        });
     });
 
     socket.on('leaveRoom', ({ roomId }) => {
@@ -92,6 +100,11 @@ io.on("connection", (socket) => {
             username,
             text: message
         });
+    });
+
+    // WebRTC sinyal olayları
+    socket.on('signal', ({ userId, signal }) => {
+        io.to(userId).emit('signal', { userId: socket.id, signal });
     });
 
     socket.on("disconnect", () => {

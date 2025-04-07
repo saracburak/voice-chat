@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import './App.css';
+import Peer from 'simple-peer';
+
 
 function App() {
   const [rooms, setRooms] = useState([
@@ -29,6 +31,9 @@ function App() {
   const [tempPassword, setTempPassword] = useState('');
   const [isPasswordCorrect, setIsPasswordCorrect] = useState(false);
   const CORRECT_PASSWORD = 'h@M3!5#pN7$wR&9K8^tQ6~LZx4%jF2'; 
+  const [peers, setPeers] = useState({});
+  const [peerStreams, setPeerStreams] = useState({});
+  const peerRefs = useRef({});
 
   const socket = useRef();
   const audioRef = useRef();
@@ -54,7 +59,7 @@ function App() {
   };
 
   useEffect(() => {
-    socket.current = io("http://localhost:8000");
+    socket.current = io("https://voice-chat-0fgk.onrender.com");
 
     socket.current.on("connect", () => {
       setIsConnected(true);
@@ -68,13 +73,66 @@ function App() {
       setUsersInRoom(users);
     });
 
+    // WebRTC sinyal olayları
+    socket.current.on("userJoined", ({ userId, username }) => {
+      const peer = new Peer({
+        initiator: true,
+        trickle: false,
+        stream: stream
+      });
+
+      peer.on("signal", (signal) => {
+        socket.current.emit("signal", { userId, signal });
+      });
+
+      peer.on("stream", (remoteStream) => {
+        setPeerStreams(prev => ({
+          ...prev,
+          [userId]: remoteStream
+        }));
+      });
+
+      peerRefs.current[userId] = peer;
+      setPeers(prev => ({
+        ...prev,
+        [userId]: peer
+      }));
+    });
+
+    socket.current.on("signal", ({ userId, signal }) => {
+      const peer = new Peer({
+        initiator: false,
+        trickle: false,
+        stream: stream
+      });
+
+      peer.on("signal", (signal) => {
+        socket.current.emit("signal", { userId, signal });
+      });
+
+      peer.on("stream", (remoteStream) => {
+        setPeerStreams(prev => ({
+          ...prev,
+          [userId]: remoteStream
+        }));
+      });
+
+      peer.signal(signal);
+      peerRefs.current[userId] = peer;
+      setPeers(prev => ({
+        ...prev,
+        [userId]: peer
+      }));
+    });
+
     return () => {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
+      Object.values(peerRefs.current).forEach(peer => peer.destroy());
       socket.current.disconnect();
     };
-  }, []);
+  }, [stream]);
 
   const handlePasswordSubmit = (e) => {
     e.preventDefault();
@@ -131,6 +189,10 @@ function App() {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
+    Object.values(peerRefs.current).forEach(peer => peer.destroy());
+    setPeers({});
+    setPeerStreams({});
+    peerRefs.current = {};
     socket.current.emit('leaveRoom', { roomId: currentRoom });
     setCurrentRoom(null);
     setMessages([]);
@@ -461,6 +523,21 @@ function App() {
         </div>
       )}
       <audio ref={audioRef} autoPlay />
+      <div className="audio-streams">
+        {Object.entries(peerStreams).map(([userId, peerStream]) => (
+          <audio
+            key={userId}
+            autoPlay
+            playsInline
+            ref={audio => {
+              if (audio) {
+                audio.srcObject = peerStream;
+                audio.volume = volume;
+              }
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
