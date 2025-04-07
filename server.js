@@ -62,7 +62,7 @@ io.on("connection", (socket) => {
         );
 
         // Hoş geldin mesajı
-        socket.to(roomId).emit('message', {
+        io.to(roomId).emit('message', {
             username: 'Sistem',
             text: `${username} odaya katıldı`
         });
@@ -70,7 +70,9 @@ io.on("connection", (socket) => {
         // Mevcut kullanıcılara yeni kullanıcıyı bildir
         rooms[roomId].users.forEach((user, userId) => {
             if (userId !== socket.id) {
+                // Yeni kullanıcıya mevcut kullanıcıları bildir
                 socket.emit('userJoined', { userId, username: user.username });
+                // Mevcut kullanıcılara yeni kullanıcıyı bildir
                 io.to(userId).emit('userJoined', { userId: socket.id, username });
             }
         });
@@ -87,7 +89,7 @@ io.on("connection", (socket) => {
                     Array.from(rooms[roomId].users.values())
                 );
 
-                socket.to(roomId).emit('message', {
+                io.to(roomId).emit('message', {
                     username: 'Sistem',
                     text: `${user.username} odadan ayrıldı`
                 });
@@ -104,6 +106,7 @@ io.on("connection", (socket) => {
 
     // WebRTC sinyal olayları
     socket.on('signal', ({ userId, signal }) => {
+        console.log(`Sinyal iletiliyor: ${socket.id} -> ${userId}`);
         io.to(userId).emit('signal', { userId: socket.id, signal });
     });
 
