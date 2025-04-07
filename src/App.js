@@ -54,7 +54,7 @@ function App() {
   };
 
   useEffect(() => {
-    socket.current = io("http://localhost:8000");
+    socket.current = io("https://voice-chat-0fgk.onrender.com");
 
     socket.current.on("connect", () => {
       setIsConnected(true);
