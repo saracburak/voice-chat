@@ -50,6 +50,12 @@ io.on("connection", (socket) => {
             io.to(previousRoom).emit('roomUsers',
                 Array.from(rooms[previousRoom].users.values())
             );
+            
+            // Odadan ayrılma bildirimi
+            io.to(previousRoom).emit('message', {
+                username: 'Sistem',
+                text: `${username} odadan ayrıldı`
+            });
         }
 
         // Yeni odaya katıl
@@ -61,7 +67,7 @@ io.on("connection", (socket) => {
             Array.from(rooms[roomId].users.values())
         );
 
-        // Hoş geldin mesajı
+        // Hoş geldin mesajı - tüm odadaki kullanıcılara gönder
         io.to(roomId).emit('message', {
             username: 'Sistem',
             text: `${username} odaya katıldı`
@@ -89,6 +95,7 @@ io.on("connection", (socket) => {
                     Array.from(rooms[roomId].users.values())
                 );
 
+                // Odadan ayrılma bildirimi - tüm odadaki kullanıcılara gönder
                 io.to(roomId).emit('message', {
                     username: 'Sistem',
                     text: `${user.username} odadan ayrıldı`
@@ -121,6 +128,7 @@ io.on("connection", (socket) => {
                     Array.from(rooms[roomId].users.values())
                 );
 
+                // Bağlantı kesilme bildirimi - tüm odadaki kullanıcılara gönder
                 io.to(roomId).emit('message', {
                     username: 'Sistem',
                     text: `${user.username} bağlantısı kesildi`
