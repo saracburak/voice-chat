@@ -59,7 +59,7 @@ function App() {
   };
 
   useEffect(() => {
-    socket.current = io("https://voice-chat-0fgk.onrender.com");
+    socket.current = io("https://voice-chat-950j.onrender.com");
 
     socket.current.on("connect", () => {
       setIsConnected(true);
