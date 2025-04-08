@@ -60,10 +60,12 @@ function App() {
 
   useEffect(() => {
     socket.current = io("https://voice-chat-950j.onrender.com", {
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
       withCredentials: true
     });
 
@@ -74,6 +76,12 @@ function App() {
 
     socket.current.on("connect_error", (error) => {
       console.error("Bağlantı hatası:", error);
+      setIsConnected(false);
+    });
+
+    socket.current.on("disconnect", (reason) => {
+      console.log("Sunucu bağlantısı kesildi:", reason);
+      setIsConnected(false);
     });
 
     socket.current.on("message", (message) => {
@@ -88,6 +96,10 @@ function App() {
 
     socket.current.on("userJoined", ({ userId, username }) => {
       console.log("Yeni kullanıcı katıldı:", username, "ID:", userId);
+      setMessages(prev => [...prev, {
+        username: 'Sistem',
+        text: `${username} odaya katıldı`
+      }]);
       
       if (stream) {
         console.log("Stream mevcut, peer bağlantısı kuruluyor...");
@@ -116,7 +128,6 @@ function App() {
             [userId]: remoteStream
           }));
           
-          // Ses bağlantısı kuruldu bildirimi
           setMessages(prev => [...prev, {
             username: 'Sistem',
             text: `${username} ile ses bağlantısı kuruldu`
@@ -139,6 +150,31 @@ function App() {
       } else {
         console.log("Stream mevcut değil, peer bağlantısı kurulamıyor");
       }
+    });
+
+    socket.current.on("userLeft", ({ userId, username }) => {
+      console.log("Kullanıcı ayrıldı:", username, "ID:", userId);
+      setMessages(prev => [...prev, {
+        username: 'Sistem',
+        text: `${username} odadan ayrıldı`
+      }]);
+      
+      if (peerRefs.current[userId]) {
+        peerRefs.current[userId].destroy();
+        delete peerRefs.current[userId];
+      }
+      
+      setPeers(prev => {
+        const newPeers = { ...prev };
+        delete newPeers[userId];
+        return newPeers;
+      });
+      
+      setPeerStreams(prev => {
+        const newStreams = { ...prev };
+        delete newStreams[userId];
+        return newStreams;
+      });
     });
 
     socket.current.on("signal", ({ userId, signal }) => {

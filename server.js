@@ -10,7 +10,8 @@ const server = http.createServer(app);
 app.use(cors({
   origin: ["https://voice-chat-1-abfk.onrender.com", "http://localhost:3000"],
   methods: ["GET", "POST"],
-  credentials: true
+  credentials: true,
+  allowedHeaders: ["my-custom-header"]
 }));
 
 // Socket.io setup
@@ -18,8 +19,12 @@ const io = require("socket.io")(server, {
     cors: {
         origin: ["https://voice-chat-1-abfk.onrender.com", "http://localhost:3000"],
         methods: ["GET", "POST"],
-        credentials: true
-    }
+        credentials: true,
+        allowedHeaders: ["my-custom-header"],
+        transports: ['websocket', 'polling']
+    },
+    pingTimeout: 60000,
+    pingInterval: 25000
 });
 
 // React build klasörünü sun
