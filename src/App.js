@@ -3,10 +3,7 @@ import io from 'socket.io-client';
 import './App.css';
 import Peer from 'simple-peer';
 
-// Process polyfill for browser environment
-if (typeof window !== 'undefined' && !window.process) {
-  window.process = { env: {} };
-}
+// Node.js polyfill kısmını kaldırıyoruz
 
 function App() {
   const [rooms, setRooms] = useState([
