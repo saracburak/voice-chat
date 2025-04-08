@@ -3,7 +3,15 @@ import io from 'socket.io-client';
 import './App.css';
 import { Peer } from 'peerjs';
 
-// Node.js polyfill kısmını kaldırıyoruz
+// Geçerli bir PeerJS ID'si oluşturmak için yardımcı fonksiyon
+const generatePeerId = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 16; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
 
 function App() {
   const [rooms, setRooms] = useState([
@@ -104,15 +112,15 @@ function App() {
       setUsersInRoom(users);
     });
 
-    socket.current.on("userJoined", ({ userId, username }) => {
-      console.log("Yeni kullanıcı katıldı:", username, "ID:", userId);
+    socket.current.on("userJoined", ({ userId, username, peerId }) => {
+      console.log("Yeni kullanıcı katıldı:", username, "ID:", userId, "PeerID:", peerId);
       setMessages(prev => [...prev, {
         username: 'Sistem',
         text: `${username} odaya katıldı`
       }]);
 
-      if (stream && peerRef.current) {
-        const call = peerRef.current.call(userId, stream);
+      if (stream && peerRef.current && peerId) {
+        const call = peerRef.current.call(peerId, stream);
         handleCall(call, userId, username);
       }
     });
@@ -198,7 +206,9 @@ function App() {
 
   useEffect(() => {
     if (currentRoom && stream && !peerRef.current) {
-      const peer = new Peer(socket.current.id, {
+      const peerId = generatePeerId(); // Özel ID oluştur
+      
+      const peer = new Peer(peerId, {
         host: 'voice-chat-950j.onrender.com',
         port: 443,
         path: '/peerjs',
@@ -219,6 +229,11 @@ function App() {
 
       peer.on('open', (id) => {
         console.log('PeerJS bağlantısı açıldı:', id);
+        // Socket.IO üzerinden PeerJS ID'sini diğer kullanıcılara bildir
+        socket.current.emit('peerIdUpdate', { 
+          peerId: id, 
+          socketId: socket.current.id 
+        });
       });
 
       peer.on('call', (call) => {
@@ -231,6 +246,13 @@ function App() {
 
       peer.on('error', (err) => {
         console.error('PeerJS hatası:', err);
+        // Hata durumunda yeniden bağlanmayı dene
+        setTimeout(() => {
+          if (peerRef.current) {
+            peerRef.current.destroy();
+            peerRef.current = null;
+          }
+        }, 5000);
       });
 
       peerRef.current = peer;

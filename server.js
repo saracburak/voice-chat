@@ -43,6 +43,9 @@ const rooms = {
     'oda3': { users: new Map() }
 };
 
+// PeerJS ID'lerini saklamak için Map
+const peerIds = new Map();
+
 // API testi (isteğe bağlı)
 app.get("/api", (req, res) => {
     res.send("Sesli sohbet sunucusu çalışıyor");
@@ -64,6 +67,12 @@ io.on("connection", (socket) => {
     
     socket.conn.on("close", (reason) => {
       console.log(`[${socket.id}] bağlantı kapandı: ${reason}`);
+    });
+
+    // PeerJS ID güncelleme
+    socket.on('peerIdUpdate', ({ peerId, socketId }) => {
+        console.log(`PeerJS ID güncellendi - Socket ID: ${socketId}, Peer ID: ${peerId}`);
+        peerIds.set(socketId, peerId);
     });
 
     socket.on('joinRoom', ({ roomId, username }) => {
@@ -96,7 +105,11 @@ io.on("connection", (socket) => {
 
         // Yeni odaya katıl
         socket.join(roomId);
-        rooms[roomId].users.set(socket.id, { id: socket.id, username });
+        rooms[roomId].users.set(socket.id, { 
+            id: socket.id, 
+            username,
+            peerId: peerIds.get(socket.id)
+        });
 
         // Odadaki kullanıcıları güncelle
         const usersInRoom = Array.from(rooms[roomId].users.values());
@@ -114,8 +127,16 @@ io.on("connection", (socket) => {
         rooms[roomId].users.forEach((user, userId) => {
             if (userId !== socket.id) {
                 console.log(`Kullanıcı bildiriliyor: ${user.username} <-> ${username}`);
-                socket.emit('userJoined', { userId, username: user.username });
-                io.to(userId).emit('userJoined', { userId: socket.id, username });
+                socket.emit('userJoined', { 
+                    userId, 
+                    username: user.username,
+                    peerId: user.peerId 
+                });
+                io.to(userId).emit('userJoined', { 
+                    userId: socket.id, 
+                    username,
+                    peerId: peerIds.get(socket.id)
+                });
             }
         });
     });
@@ -156,21 +177,11 @@ io.on("connection", (socket) => {
         });
     });
 
-    // WebRTC sinyal olayları
-    socket.on('signal', ({ userId, signal }) => {
-        console.log(`Sinyal iletiliyor: ${socket.id} -> ${userId}`);
-        
-        // Hedef kullanıcıya sinyali ilet
-        if (io.sockets.sockets.has(userId)) {
-            io.to(userId).emit('signal', { userId: socket.id, signal });
-            console.log(`Sinyal başarıyla iletildi: ${socket.id} -> ${userId}`);
-        } else {
-            console.log(`Hedef kullanıcı bulunamadı: ${userId}`);
-        }
-    });
-
     socket.on("disconnect", () => {
         console.log('Kullanıcı ayrıldı:', socket.id);
+        // PeerJS ID'sini temizle
+        peerIds.delete(socket.id);
+
         Object.keys(rooms).forEach(roomId => {
             if (rooms[roomId].users.has(socket.id)) {
                 const user = rooms[roomId].users.get(socket.id);
@@ -199,8 +210,13 @@ io.on("connection", (socket) => {
     });
 });
 
-// Sunucuyu başlat
-const PORT = process.env.PORT || 8000;
-server.listen(PORT, () => {
-    console.log(`Sunucu ${PORT} portunda çalışıyor...`);
+// PeerJS sunucusu için Express endpoint'leri
+app.use('/peerjs', require('peer').ExpressPeerServer(server, {
+    debug: true,
+    path: '/'
+}));
+
+const port = process.env.PORT || 3001;
+server.listen(port, () => {
+    console.log(`Sunucu ${port} portunda çalışıyor`);
 });
