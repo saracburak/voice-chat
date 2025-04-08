@@ -159,7 +159,14 @@ io.on("connection", (socket) => {
     // WebRTC sinyal olayları
     socket.on('signal', ({ userId, signal }) => {
         console.log(`Sinyal iletiliyor: ${socket.id} -> ${userId}`);
-        io.to(userId).emit('signal', { userId: socket.id, signal });
+        
+        // Hedef kullanıcıya sinyali ilet
+        if (io.sockets.sockets.has(userId)) {
+            io.to(userId).emit('signal', { userId: socket.id, signal });
+            console.log(`Sinyal başarıyla iletildi: ${socket.id} -> ${userId}`);
+        } else {
+            console.log(`Hedef kullanıcı bulunamadı: ${userId}`);
+        }
     });
 
     socket.on("disconnect", () => {

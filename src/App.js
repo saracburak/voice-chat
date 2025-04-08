@@ -3,6 +3,10 @@ import io from 'socket.io-client';
 import './App.css';
 import Peer from 'simple-peer';
 
+// Process polyfill for browser environment
+if (typeof window !== 'undefined' && !window.process) {
+  window.process = { env: {} };
+}
 
 function App() {
   const [rooms, setRooms] = useState([
@@ -165,7 +169,8 @@ function App() {
     try {
       console.log(`Peer bağlantısı oluşturuluyor: ${userId}, initiator: ${initiator}`);
       
-      const peer = new Peer({
+      // WebRTC bağlantısı için yapılandırma
+      const peerConfig = {
         initiator,
         trickle: false,
         stream: mediaStream,
@@ -181,26 +186,44 @@ function App() {
             }
           ]
         }
-      });
+      };
 
+      // Peer nesnesini oluştur
+      const peer = new Peer(peerConfig);
+
+      // Sinyal gönderme olayı
       peer.on("signal", (signal) => {
         console.log("Sinyal gönderiliyor:", userId);
-        socket.current.emit("signal", { userId, signal });
+        if (socket.current && socket.current.connected) {
+          socket.current.emit("signal", { userId, signal });
+        } else {
+          console.error("Socket bağlantısı yok, sinyal gönderilemedi");
+        }
       });
 
+      // Uzak stream alma olayı
       peer.on("stream", (remoteStream) => {
         console.log("Uzak stream alındı:", userId);
+        
+        // Stream'i state'e ekle
         setPeerStreams(prev => ({
           ...prev,
           [userId]: remoteStream
         }));
         
+        // Bildirim gönder
         setMessages(prev => [...prev, {
           username: 'Sistem',
           text: `${username} ile ses bağlantısı kuruldu`
         }]);
       });
 
+      // Bağlantı kuruldu olayı
+      peer.on("connect", () => {
+        console.log(`Peer bağlantısı kuruldu: ${userId}`);
+      });
+
+      // Hata olayı
       peer.on("error", (err) => {
         console.error("Peer hatası:", err);
         setMessages(prev => [...prev, {
@@ -209,6 +232,7 @@ function App() {
         }]);
       });
       
+      // Bağlantı kapandı olayı
       peer.on('close', () => {
         console.log(`Peer bağlantısı kapatıldı: ${userId}`);
         if (peerRefs.current[userId]) {
@@ -226,10 +250,16 @@ function App() {
         });
       });
 
+      // Gelen sinyali işle
       if (incomingSignal) {
-        peer.signal(incomingSignal);
+        try {
+          peer.signal(incomingSignal);
+        } catch (err) {
+          console.error("Sinyal işleme hatası:", err);
+        }
       }
 
+      // Peer referansını sakla
       peerRefs.current[userId] = peer;
       setPeers(prev => ({
         ...prev,
@@ -513,6 +543,21 @@ function App() {
     </div>
   );
 
+  // Ses akışlarını yönetmek için useEffect
+  useEffect(() => {
+    // Ses akışlarını temizle
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      Object.values(peerRefs.current).forEach(peer => {
+        if (peer && typeof peer.destroy === 'function') {
+          peer.destroy();
+        }
+      });
+    };
+  }, []);
+
   if (!isConnected) {
     return <div className="loading">Sunucuya bağlanılıyor...</div>;
   }
@@ -647,7 +692,7 @@ function App() {
           </div>
         </div>
       )}
-      <audio ref={audioRef} autoPlay />
+      <audio ref={audioRef} autoPlay muted={isMuted} />
       <div className="audio-streams">
         {Object.entries(peerStreams).map(([userId, peerStream]) => (
           <audio
