@@ -21,7 +21,10 @@ const io = require("socket.io")(server, {
         methods: ["GET", "POST"],
         credentials: true,
         allowedHeaders: ["my-custom-header"],
-        transports: ['websocket', 'polling']
+        transports: ['websocket', 'polling'],
+        connectTimeout: 45000,
+        allowEIO3: true,
+        maxHttpBufferSize: 1e8
     },
     pingTimeout: 60000,
     pingInterval: 25000
@@ -90,9 +93,7 @@ io.on("connection", (socket) => {
         rooms[roomId].users.forEach((user, userId) => {
             if (userId !== socket.id) {
                 console.log(`Yeni kullanıcıya mevcut kullanıcı bildiriliyor: ${user.username} -> ${username}`);
-                // Yeni kullanıcıya mevcut kullanıcıları bildir
                 socket.emit('userJoined', { userId, username: user.username });
-                // Mevcut kullanıcılara yeni kullanıcıyı bildir
                 io.to(userId).emit('userJoined', { userId: socket.id, username });
             }
         });
