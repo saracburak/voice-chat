@@ -21,13 +21,16 @@ const io = require("socket.io")(server, {
         methods: ["GET", "POST"],
         credentials: true,
         allowedHeaders: ["my-custom-header"],
-        transports: ['websocket', 'polling'],
-        connectTimeout: 45000,
-        allowEIO3: true,
-        maxHttpBufferSize: 1e8
+        transports: ['polling', 'websocket']
     },
-    pingTimeout: 60000,
-    pingInterval: 25000
+    pingTimeout: 120000,
+    pingInterval: 10000,
+    connectTimeout: 60000,
+    path: '/socket.io/',
+    serveClient: false,
+    allowUpgrades: true,
+    upgradeTimeout: 30000,
+    cookie: false
 });
 
 // React build klasörünü sun
@@ -53,6 +56,15 @@ app.get("*", (req, res) => {
 // Socket.io olayları
 io.on("connection", (socket) => {
     console.log('Yeni kullanıcı bağlandı:', socket.id);
+    
+    // Bağlantı kontrolü
+    socket.conn.on("packet", ({ type }) => {
+      if (type === "ping") console.log(`[${socket.id}] ping`);
+    });
+    
+    socket.conn.on("close", (reason) => {
+      console.log(`[${socket.id}] bağlantı kapandı: ${reason}`);
+    });
 
     socket.on('joinRoom', ({ roomId, username }) => {
         console.log(`${username} (${socket.id}) odaya katılıyor: ${roomId}`);
@@ -72,6 +84,14 @@ io.on("connection", (socket) => {
                 username: 'Sistem',
                 text: `${username} odadan ayrıldı`
             });
+            
+            // Diğer kullanıcılara bildirim gönder
+            rooms[previousRoom].users.forEach((user, userId) => {
+                io.to(userId).emit('userLeft', { 
+                    userId: socket.id, 
+                    username 
+                });
+            });
         }
 
         // Yeni odaya katıl
@@ -89,10 +109,11 @@ io.on("connection", (socket) => {
             text: `${username} odaya katıldı`
         });
 
-        // Mevcut kullanıcılara yeni kullanıcıyı bildir
+        // Mevcut kullanıcılara yeni kullanıcıyı bildir ve
+        // Yeni kullanıcıya mevcut kullanıcıları bildir
         rooms[roomId].users.forEach((user, userId) => {
             if (userId !== socket.id) {
-                console.log(`Yeni kullanıcıya mevcut kullanıcı bildiriliyor: ${user.username} -> ${username}`);
+                console.log(`Kullanıcı bildiriliyor: ${user.username} <-> ${username}`);
                 socket.emit('userJoined', { userId, username: user.username });
                 io.to(userId).emit('userJoined', { userId: socket.id, username });
             }
@@ -100,23 +121,30 @@ io.on("connection", (socket) => {
     });
 
     socket.on('leaveRoom', ({ roomId }) => {
-        if (rooms[roomId]) {
+        if (rooms[roomId] && rooms[roomId].users.has(socket.id)) {
             const user = rooms[roomId].users.get(socket.id);
-            if (user) {
-                console.log(`${user.username} (${socket.id}) odadan ayrılıyor: ${roomId}`);
-                rooms[roomId].users.delete(socket.id);
-                socket.leave(roomId);
+            console.log(`${user.username} (${socket.id}) odadan ayrılıyor: ${roomId}`);
+            rooms[roomId].users.delete(socket.id);
+            socket.leave(roomId);
 
-                io.to(roomId).emit('roomUsers',
-                    Array.from(rooms[roomId].users.values())
-                );
+            // Odadaki kullanıcıları güncelle
+            io.to(roomId).emit('roomUsers',
+                Array.from(rooms[roomId].users.values())
+            );
 
-                // Odadan ayrılma bildirimi - tüm odadaki kullanıcılara gönder
-                io.to(roomId).emit('message', {
-                    username: 'Sistem',
-                    text: `${user.username} odadan ayrıldı`
+            // Odadan ayrılma bildirimi - tüm odadaki kullanıcılara gönder
+            io.to(roomId).emit('message', {
+                username: 'Sistem',
+                text: `${user.username} odadan ayrıldı`
+            });
+
+            // Diğer kullanıcılara bildirim gönder
+            rooms[roomId].users.forEach((otherUser, userId) => {
+                io.to(userId).emit('userLeft', { 
+                    userId: socket.id, 
+                    username: user.username 
                 });
-            }
+            });
         }
     });
 
@@ -141,6 +169,7 @@ io.on("connection", (socket) => {
                 const user = rooms[roomId].users.get(socket.id);
                 rooms[roomId].users.delete(socket.id);
 
+                // Odadaki kullanıcıları güncelle
                 io.to(roomId).emit('roomUsers',
                     Array.from(rooms[roomId].users.values())
                 );
@@ -149,6 +178,14 @@ io.on("connection", (socket) => {
                 io.to(roomId).emit('message', {
                     username: 'Sistem',
                     text: `${user.username} bağlantısı kesildi`
+                });
+                
+                // Diğer kullanıcılara bildirim gönder
+                rooms[roomId].users.forEach((otherUser, userId) => {
+                    io.to(userId).emit('userLeft', { 
+                        userId: socket.id, 
+                        username: user.username 
+                    });
                 });
             }
         });

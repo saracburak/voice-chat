@@ -59,148 +59,166 @@ function App() {
   };
 
   useEffect(() => {
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
+    if (socket.current) return; // Zaten bir bağlantı varsa yeni oluşturma
 
-    const connectSocket = () => {
-      if (socket.current?.connected) {
-        console.log("Socket zaten bağlı");
-        return;
+    console.log("Socket.io bağlantısı kuruluyor...");
+    socket.current = io("https://voice-chat-950j.onrender.com", {
+      transports: ['polling', 'websocket'],
+      reconnection: true,
+      reconnectionAttempts: 15,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      timeout: 30000,
+      autoConnect: true,
+      withCredentials: true
+    });
+
+    socket.current.on("connect", () => {
+      console.log("Sunucuya bağlandı:", socket.current.id);
+      setIsConnected(true);
+      
+      // Eğer kullanıcı bir odadaysa, yeniden katıl
+      if (currentRoom && username) {
+        console.log("Odaya yeniden katılıyor:", currentRoom);
+        socket.current.emit('joinRoom', { roomId: currentRoom, username });
       }
+    });
 
-      socket.current = io("https://voice-chat-950j.onrender.com", {
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionAttempts: maxReconnectAttempts,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout: 20000,
-        withCredentials: true,
-        forceNew: true
+    socket.current.on("connect_error", (error) => {
+      console.error("Bağlantı hatası:", error);
+    });
+
+    socket.current.on("disconnect", (reason) => {
+      console.log("Sunucu bağlantısı kesildi:", reason);
+      setIsConnected(false);
+    });
+
+    socket.current.on("message", (message) => {
+      console.log("Mesaj alındı:", message);
+      setMessages(prev => [...prev, message]);
+    });
+
+    socket.current.on("roomUsers", (users) => {
+      console.log("Odadaki kullanıcılar güncellendi:", users);
+      setUsersInRoom(users);
+    });
+
+    socket.current.on("userJoined", ({ userId, username }) => {
+      console.log("Yeni kullanıcı katıldı:", username, "ID:", userId);
+      setMessages(prev => [...prev, {
+        username: 'Sistem',
+        text: `${username} odaya katıldı`
+      }]);
+      
+      if (stream) {
+        createPeer(userId, username, stream, true);
+      }
+    });
+
+    socket.current.on("userLeft", ({ userId, username }) => {
+      console.log("Kullanıcı ayrıldı:", username, "ID:", userId);
+      setMessages(prev => [...prev, {
+        username: 'Sistem',
+        text: `${username} odadan ayrıldı`
+      }]);
+      
+      if (peerRefs.current[userId]) {
+        peerRefs.current[userId].destroy();
+        delete peerRefs.current[userId];
+      }
+      
+      setPeers(prev => {
+        const newPeers = { ...prev };
+        delete newPeers[userId];
+        return newPeers;
       });
-
-      socket.current.on("connect", () => {
-        console.log("Sunucuya bağlandı:", socket.current.id);
-        setIsConnected(true);
-        reconnectAttempts = 0;
-
-        // Eğer kullanıcı bir odadaysa, yeniden katıl
-        if (currentRoom && username) {
-          console.log("Odaya yeniden katılıyor:", currentRoom);
-          socket.current.emit('joinRoom', { roomId: currentRoom, username });
-        }
+      
+      setPeerStreams(prev => {
+        const newStreams = { ...prev };
+        delete newStreams[userId];
+        return newStreams;
       });
+    });
 
-      socket.current.on("connect_error", (error) => {
-        console.error("Bağlantı hatası:", error);
-        setIsConnected(false);
-        reconnectAttempts++;
-        
-        if (reconnectAttempts >= maxReconnectAttempts) {
-          console.log("Maksimum yeniden bağlanma denemesi aşıldı");
-          socket.current.disconnect();
-        }
-      });
+    socket.current.on("signal", ({ userId, signal }) => {
+      console.log("Sinyal alındı:", userId);
+      
+      if (peerRefs.current[userId]) {
+        peerRefs.current[userId].signal(signal);
+      } else if (stream) {
+        createPeer(userId, "Kullanıcı", stream, false, signal);
+      }
+    });
 
-      socket.current.on("disconnect", (reason) => {
-        console.log("Sunucu bağlantısı kesildi:", reason);
-        setIsConnected(false);
-        
-        if (reason === "io server disconnect" || reason === "io client disconnect") {
-          // Sunucu tarafından kapatıldıysa veya client tarafından kapatıldıysa
-          setTimeout(() => {
-            console.log("Yeniden bağlanmaya çalışılıyor...");
-            connectSocket();
-          }, 1000);
-        }
-      });
+    return () => {
+      // Eğer odadan çıkılırsa stream kapatılacak, bu yüzden burada kapatmıyoruz
+      if (socket.current) {
+        console.log("Socket bağlantısı kapatılıyor...");
+        socket.current.offAny(); // Tüm dinleyicileri kaldır
+        socket.current.disconnect();
+      }
+    };
+  }, []);  // Sadece bir kez çalıştır, boş dizi bırak
 
-      socket.current.on("message", (message) => {
-        console.log("Mesaj alındı:", message);
-        setMessages(prev => [...prev, message]);
-      });
-
-      socket.current.on("roomUsers", (users) => {
-        console.log("Odadaki kullanıcılar güncellendi:", users);
-        setUsersInRoom(users);
-      });
-
-      socket.current.on("userJoined", ({ userId, username }) => {
-        console.log("Yeni kullanıcı katıldı:", username, "ID:", userId);
-        setMessages(prev => [...prev, {
-          username: 'Sistem',
-          text: `${username} odaya katıldı`
-        }]);
-        
-        if (stream) {
-          console.log("Stream mevcut, peer bağlantısı kuruluyor...");
-          const peer = new Peer({
-            initiator: true,
-            trickle: false,
-            stream: stream,
-            config: {
-              iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
-              ]
+  // Peer bağlantısı oluşturmak için yardımcı fonksiyon
+  const createPeer = (userId, username, mediaStream, initiator, incomingSignal = null) => {
+    try {
+      console.log(`Peer bağlantısı oluşturuluyor: ${userId}, initiator: ${initiator}`);
+      
+      const peer = new Peer({
+        initiator,
+        trickle: false,
+        stream: mediaStream,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { 
+              urls: 'turn:numb.viagenie.ca',
+              username: 'webrtc@live.com',
+              credential: 'muazkh'
             }
-          });
-
-          peer.on("signal", (signal) => {
-            console.log("Sinyal gönderiliyor:", userId);
-            socket.current.emit("signal", { userId, signal });
-          });
-
-          peer.on("stream", (remoteStream) => {
-            console.log("Uzak stream alındı:", userId);
-            setPeerStreams(prev => ({
-              ...prev,
-              [userId]: remoteStream
-            }));
-            
-            setMessages(prev => [...prev, {
-              username: 'Sistem',
-              text: `${username} ile ses bağlantısı kuruldu`
-            }]);
-          });
-
-          peer.on("error", (err) => {
-            console.error("Peer hatası:", err);
-            setMessages(prev => [...prev, {
-              username: 'Sistem',
-              text: `${username} ile ses bağlantısı kurulamadı: ${err.message}`
-            }]);
-          });
-
-          peerRefs.current[userId] = peer;
-          setPeers(prev => ({
-            ...prev,
-            [userId]: peer
-          }));
-        } else {
-          console.log("Stream mevcut değil, peer bağlantısı kurulamıyor");
+          ]
         }
       });
 
-      socket.current.on("userLeft", ({ userId, username }) => {
-        console.log("Kullanıcı ayrıldı:", username, "ID:", userId);
+      peer.on("signal", (signal) => {
+        console.log("Sinyal gönderiliyor:", userId);
+        socket.current.emit("signal", { userId, signal });
+      });
+
+      peer.on("stream", (remoteStream) => {
+        console.log("Uzak stream alındı:", userId);
+        setPeerStreams(prev => ({
+          ...prev,
+          [userId]: remoteStream
+        }));
+        
         setMessages(prev => [...prev, {
           username: 'Sistem',
-          text: `${username} odadan ayrıldı`
+          text: `${username} ile ses bağlantısı kuruldu`
         }]);
-        
+      });
+
+      peer.on("error", (err) => {
+        console.error("Peer hatası:", err);
+        setMessages(prev => [...prev, {
+          username: 'Sistem',
+          text: `${username} ile ses bağlantısı kurulamadı: ${err.message}`
+        }]);
+      });
+      
+      peer.on('close', () => {
+        console.log(`Peer bağlantısı kapatıldı: ${userId}`);
         if (peerRefs.current[userId]) {
-          peerRefs.current[userId].destroy();
           delete peerRefs.current[userId];
         }
-        
         setPeers(prev => {
           const newPeers = { ...prev };
           delete newPeers[userId];
           return newPeers;
         });
-        
         setPeerStreams(prev => {
           const newStreams = { ...prev };
           delete newStreams[userId];
@@ -208,81 +226,34 @@ function App() {
         });
       });
 
-      socket.current.on("signal", ({ userId, signal }) => {
-        console.log("Sinyal alındı:", userId);
-        
-        if (stream) {
-          console.log("Stream mevcut, peer bağlantısı kuruluyor...");
-          const peer = new Peer({
-            initiator: false,
-            trickle: false,
-            stream: stream,
-            config: {
-              iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
-              ]
-            }
-          });
+      if (incomingSignal) {
+        peer.signal(incomingSignal);
+      }
 
-          peer.on("signal", (signal) => {
-            console.log("Sinyal gönderiliyor:", userId);
-            socket.current.emit("signal", { userId, signal });
-          });
+      peerRefs.current[userId] = peer;
+      setPeers(prev => ({
+        ...prev,
+        [userId]: peer
+      }));
+      
+      return peer;
+    } catch (error) {
+      console.error("Peer oluşturma hatası:", error);
+      return null;
+    }
+  };
 
-          peer.on("stream", (remoteStream) => {
-            console.log("Uzak stream alındı:", userId);
-            setPeerStreams(prev => ({
-              ...prev,
-              [userId]: remoteStream
-            }));
-            
-            // Ses bağlantısı kuruldu bildirimi
-            const user = usersInRoom.find(u => u.id === userId);
-            if (user) {
-              setMessages(prev => [...prev, {
-                username: 'Sistem',
-                text: `${user.username} ile ses bağlantısı kuruldu`
-              }]);
-            }
-          });
-
-          peer.on("error", (err) => {
-            console.error("Peer hatası:", err);
-            const user = usersInRoom.find(u => u.id === userId);
-            if (user) {
-              setMessages(prev => [...prev, {
-                username: 'Sistem',
-                text: `${user.username} ile ses bağlantısı kurulamadı: ${err.message}`
-              }]);
-            }
-          });
-
-          peer.signal(signal);
-          peerRefs.current[userId] = peer;
-          setPeers(prev => ({
-            ...prev,
-            [userId]: peer
-          }));
-        } else {
-          console.log("Stream mevcut değil, peer bağlantısı kurulamıyor");
+  useEffect(() => {
+    // Mevcut odadaki diğer kullanıcılarla peer bağlantıları kur
+    if (currentRoom && stream && usersInRoom.length > 0) {
+      usersInRoom.forEach(user => {
+        // Kendimiz dışındaki kullanıcılarla bağlantı kur
+        if (user.id !== socket.current?.id && !peerRefs.current[user.id]) {
+          createPeer(user.id, user.username, stream, true);
         }
       });
-    };
-
-    connectSocket();
-
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      Object.values(peerRefs.current).forEach(peer => peer.destroy());
-      if (socket.current) {
-        socket.current.disconnect();
-      }
-    };
-  }, [currentRoom, username, stream, usersInRoom]);
+    }
+  }, [currentRoom, stream, usersInRoom]);
 
   const handlePasswordSubmit = (e) => {
     e.preventDefault();
