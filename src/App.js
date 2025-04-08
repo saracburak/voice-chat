@@ -3,6 +3,11 @@ import io from 'socket.io-client';
 import './App.css';
 import { Peer } from 'peerjs';
 
+// Process polyfill ekle
+if (typeof window !== 'undefined' && !window.process) {
+  window.process = { env: {} };
+}
+
 // Geçerli bir PeerJS ID'si oluşturmak için yardımcı fonksiyon
 const generatePeerId = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -208,10 +213,11 @@ function App() {
     if (currentRoom && stream && !peerRef.current) {
       const peerId = generatePeerId(); // Özel ID oluştur
       
+      console.log("PeerJS bağlantısı kuruluyor...");
       const peer = new Peer(peerId, {
         host: 'voice-chat-950j.onrender.com',
         port: 443,
-        path: '/peerjs',
+        path: '/',
         secure: true,
         config: {
           iceServers: [
@@ -230,10 +236,14 @@ function App() {
       peer.on('open', (id) => {
         console.log('PeerJS bağlantısı açıldı:', id);
         // Socket.IO üzerinden PeerJS ID'sini diğer kullanıcılara bildir
-        socket.current.emit('peerIdUpdate', { 
-          peerId: id, 
-          socketId: socket.current.id 
-        });
+        if (socket.current && socket.current.connected) {
+          socket.current.emit('peerIdUpdate', { 
+            peerId: id, 
+            socketId: socket.current.id 
+          });
+        } else {
+          console.error("Socket bağlantısı yok, PeerJS ID'si gönderilemedi");
+        }
       });
 
       peer.on('call', (call) => {
@@ -260,6 +270,7 @@ function App() {
 
     return () => {
       if (peerRef.current) {
+        console.log("PeerJS bağlantısı kapatılıyor...");
         peerRef.current.destroy();
         peerRef.current = null;
       }

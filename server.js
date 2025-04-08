@@ -2,6 +2,8 @@ const express = require("express");
 const http = require("http");
 const path = require("path");
 const cors = require("cors");
+const { Server } = require('socket.io');
+const { ExpressPeerServer } = require('peer');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,28 +12,26 @@ const server = http.createServer(app);
 app.use(cors({
   origin: ["https://voice-chat-1-abfk.onrender.com", "http://localhost:3000"],
   methods: ["GET", "POST"],
-  credentials: true,
-  allowedHeaders: ["my-custom-header"]
+  credentials: true
 }));
 
 // Socket.io setup
-const io = require("socket.io")(server, {
-    cors: {
-        origin: ["https://voice-chat-1-abfk.onrender.com", "http://localhost:3000"],
-        methods: ["GET", "POST"],
-        credentials: true,
-        allowedHeaders: ["my-custom-header"],
-        transports: ['polling', 'websocket']
-    },
-    pingTimeout: 120000,
-    pingInterval: 10000,
-    connectTimeout: 60000,
-    path: '/socket.io/',
-    serveClient: false,
-    allowUpgrades: true,
-    upgradeTimeout: 30000,
-    cookie: false
+const io = new Server(server, {
+  cors: {
+    origin: ["https://voice-chat-1-abfk.onrender.com", "http://localhost:3000"],
+    methods: ["GET", "POST"],
+    credentials: true
+  }
 });
+
+// PeerJS sunucusunu oluştur
+const peerServer = ExpressPeerServer(server, {
+  path: '/',
+  allow_discovery: true,
+  proxied: true
+});
+
+app.use('/', peerServer);
 
 // React build klasörünü sun
 app.use(express.static(path.join(__dirname, 'build')));
@@ -210,11 +210,14 @@ io.on("connection", (socket) => {
     });
 });
 
-// PeerJS sunucusu için Express endpoint'leri
-app.use('/peerjs', require('peer').ExpressPeerServer(server, {
-    debug: true,
-    path: '/'
-}));
+// PeerJS olaylarını dinle
+peerServer.on('connection', (client) => {
+  console.log('Peer bağlantısı kuruldu:', client.getId());
+});
+
+peerServer.on('disconnect', (client) => {
+  console.log('Peer bağlantısı kesildi:', client.getId());
+});
 
 const port = process.env.PORT || 3001;
 server.listen(port, () => {
