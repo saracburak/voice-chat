@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import './App.css';
-import Peer from 'simple-peer';
+import { Peer } from 'peerjs';
 
 // Node.js polyfill kısmını kaldırıyoruz
 
@@ -31,13 +31,14 @@ function App() {
   const [isSettingPTTKey, setIsSettingPTTKey] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
   const [isPasswordCorrect, setIsPasswordCorrect] = useState(false);
-  const CORRECT_PASSWORD = 'h@M3!5#pN7$wR&9K8^tQ6~LZx4%jF2'; 
-  const [peers, setPeers] = useState({});
+  const CORRECT_PASSWORD = 'h@M3!5#pN7$wR&9K8^tQ6~LZx4%jF2';
+  const [peerConnections, setPeerConnections] = useState({});
   const [peerStreams, setPeerStreams] = useState({});
-  const peerRefs = useRef({});
 
   const socket = useRef();
   const audioRef = useRef();
+  const peerRef = useRef();
+  const peerConnectionsRef = useRef({});
 
   const getRandomColor = (userId) => {
     if (!userColors.has(userId)) {
@@ -60,7 +61,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (socket.current) return; // Zaten bir bağlantı varsa yeni oluşturma
+    if (socket.current) return;
 
     console.log("Socket.io bağlantısı kuruluyor...");
     socket.current = io("https://voice-chat-950j.onrender.com", {
@@ -78,7 +79,6 @@ function App() {
       console.log("Sunucuya bağlandı:", socket.current.id);
       setIsConnected(true);
       
-      // Eğer kullanıcı bir odadaysa, yeniden katıl
       if (currentRoom && username) {
         console.log("Odaya yeniden katılıyor:", currentRoom);
         socket.current.emit('joinRoom', { roomId: currentRoom, username });
@@ -110,9 +110,10 @@ function App() {
         username: 'Sistem',
         text: `${username} odaya katıldı`
       }]);
-      
-      if (stream) {
-        createPeer(userId, username, stream, true);
+
+      if (stream && peerRef.current) {
+        const call = peerRef.current.call(userId, stream);
+        handleCall(call, userId, username);
       }
     });
 
@@ -122,18 +123,18 @@ function App() {
         username: 'Sistem',
         text: `${username} odadan ayrıldı`
       }]);
-      
-      if (peerRefs.current[userId]) {
-        peerRefs.current[userId].destroy();
-        delete peerRefs.current[userId];
+
+      if (peerConnectionsRef.current[userId]) {
+        peerConnectionsRef.current[userId].close();
+        delete peerConnectionsRef.current[userId];
       }
-      
-      setPeers(prev => {
-        const newPeers = { ...prev };
-        delete newPeers[userId];
-        return newPeers;
+
+      setPeerConnections(prev => {
+        const newConnections = { ...prev };
+        delete newConnections[userId];
+        return newConnections;
       });
-      
+
       setPeerStreams(prev => {
         const newStreams = { ...prev };
         delete newStreams[userId];
@@ -141,146 +142,107 @@ function App() {
       });
     });
 
-    socket.current.on("signal", ({ userId, signal }) => {
-      console.log("Sinyal alındı:", userId);
-      
-      if (peerRefs.current[userId]) {
-        peerRefs.current[userId].signal(signal);
-      } else if (stream) {
-        createPeer(userId, "Kullanıcı", stream, false, signal);
-      }
-    });
-
     return () => {
-      // Eğer odadan çıkılırsa stream kapatılacak, bu yüzden burada kapatmıyoruz
       if (socket.current) {
         console.log("Socket bağlantısı kapatılıyor...");
-        socket.current.offAny(); // Tüm dinleyicileri kaldır
+        socket.current.offAny();
         socket.current.disconnect();
       }
     };
-  }, []);  // Sadece bir kez çalıştır, boş dizi bırak
+  }, []);
 
-  // Peer bağlantısı oluşturmak için yardımcı fonksiyon
-  const createPeer = (userId, username, mediaStream, initiator, incomingSignal = null) => {
-    try {
-      console.log(`Peer bağlantısı oluşturuluyor: ${userId}, initiator: ${initiator}`);
-      
-      // WebRTC bağlantısı için yapılandırma
-      const peerConfig = {
-        initiator,
-        trickle: false,
-        stream: mediaStream,
+  const handleCall = (call, userId, username) => {
+    call.on('stream', (remoteStream) => {
+      console.log("Uzak stream alındı:", userId);
+      setPeerStreams(prev => ({
+        ...prev,
+        [userId]: remoteStream
+      }));
+      setMessages(prev => [...prev, {
+        username: 'Sistem',
+        text: `${username} ile ses bağlantısı kuruldu`
+      }]);
+    });
+
+    call.on('close', () => {
+      console.log(`Peer bağlantısı kapatıldı: ${userId}`);
+      if (peerConnectionsRef.current[userId]) {
+        delete peerConnectionsRef.current[userId];
+      }
+      setPeerConnections(prev => {
+        const newConnections = { ...prev };
+        delete newConnections[userId];
+        return newConnections;
+      });
+      setPeerStreams(prev => {
+        const newStreams = { ...prev };
+        delete newStreams[userId];
+        return newStreams;
+      });
+    });
+
+    call.on('error', (err) => {
+      console.error("Peer hatası:", err);
+      setMessages(prev => [...prev, {
+        username: 'Sistem',
+        text: `${username} ile ses bağlantısı kurulamadı: ${err.message}`
+      }]);
+    });
+
+    peerConnectionsRef.current[userId] = call;
+    setPeerConnections(prev => ({
+      ...prev,
+      [userId]: call
+    }));
+  };
+
+  useEffect(() => {
+    if (currentRoom && stream && !peerRef.current) {
+      const peer = new Peer(socket.current.id, {
+        host: 'voice-chat-950j.onrender.com',
+        port: 443,
+        path: '/peerjs',
+        secure: true,
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { 
+            {
               urls: 'turn:numb.viagenie.ca',
               username: 'webrtc@live.com',
               credential: 'muazkh'
             }
           ]
-        }
-      };
-
-      // Peer nesnesini oluştur
-      const peer = new Peer(peerConfig);
-
-      // Sinyal gönderme olayı
-      peer.on("signal", (signal) => {
-        console.log("Sinyal gönderiliyor:", userId);
-        if (socket.current && socket.current.connected) {
-          socket.current.emit("signal", { userId, signal });
-        } else {
-          console.error("Socket bağlantısı yok, sinyal gönderilemedi");
-        }
+        },
+        debug: 3
       });
 
-      // Uzak stream alma olayı
-      peer.on("stream", (remoteStream) => {
-        console.log("Uzak stream alındı:", userId);
-        
-        // Stream'i state'e ekle
-        setPeerStreams(prev => ({
-          ...prev,
-          [userId]: remoteStream
-        }));
-        
-        // Bildirim gönder
-        setMessages(prev => [...prev, {
-          username: 'Sistem',
-          text: `${username} ile ses bağlantısı kuruldu`
-        }]);
+      peer.on('open', (id) => {
+        console.log('PeerJS bağlantısı açıldı:', id);
       });
 
-      // Bağlantı kuruldu olayı
-      peer.on("connect", () => {
-        console.log(`Peer bağlantısı kuruldu: ${userId}`);
+      peer.on('call', (call) => {
+        console.log('Gelen arama:', call);
+        call.answer(stream);
+        const callerId = call.peer;
+        const caller = usersInRoom.find(u => u.id === callerId);
+        handleCall(call, callerId, caller?.username || 'Bilinmeyen Kullanıcı');
       });
 
-      // Hata olayı
-      peer.on("error", (err) => {
-        console.error("Peer hatası:", err);
-        setMessages(prev => [...prev, {
-          username: 'Sistem',
-          text: `${username} ile ses bağlantısı kurulamadı: ${err.message}`
-        }]);
-      });
-      
-      // Bağlantı kapandı olayı
-      peer.on('close', () => {
-        console.log(`Peer bağlantısı kapatıldı: ${userId}`);
-        if (peerRefs.current[userId]) {
-          delete peerRefs.current[userId];
-        }
-        setPeers(prev => {
-          const newPeers = { ...prev };
-          delete newPeers[userId];
-          return newPeers;
-        });
-        setPeerStreams(prev => {
-          const newStreams = { ...prev };
-          delete newStreams[userId];
-          return newStreams;
-        });
+      peer.on('error', (err) => {
+        console.error('PeerJS hatası:', err);
       });
 
-      // Gelen sinyali işle
-      if (incomingSignal) {
-        try {
-          peer.signal(incomingSignal);
-        } catch (err) {
-          console.error("Sinyal işleme hatası:", err);
-        }
+      peerRef.current = peer;
+    }
+
+    return () => {
+      if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
       }
-
-      // Peer referansını sakla
-      peerRefs.current[userId] = peer;
-      setPeers(prev => ({
-        ...prev,
-        [userId]: peer
-      }));
-      
-      return peer;
-    } catch (error) {
-      console.error("Peer oluşturma hatası:", error);
-      return null;
-    }
-  };
-
-  useEffect(() => {
-    // Mevcut odadaki diğer kullanıcılarla peer bağlantıları kur
-    if (currentRoom && stream && usersInRoom.length > 0) {
-      usersInRoom.forEach(user => {
-        // Kendimiz dışındaki kullanıcılarla bağlantı kur
-        if (user.id !== socket.current?.id && !peerRefs.current[user.id]) {
-          createPeer(user.id, user.username, stream, true);
-        }
-      });
-    }
-  }, [currentRoom, stream, usersInRoom]);
+    };
+  }, [currentRoom, stream]);
 
   const handlePasswordSubmit = (e) => {
     e.preventDefault();
@@ -341,10 +303,10 @@ function App() {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
-    Object.values(peerRefs.current).forEach(peer => peer.destroy());
-    setPeers({});
+    Object.values(peerConnectionsRef.current).forEach(call => call.close());
+    setPeerConnections({});
     setPeerStreams({});
-    peerRefs.current = {};
+    peerConnectionsRef.current = {};
     socket.current.emit('leaveRoom', { roomId: currentRoom });
     setCurrentRoom(null);
     setMessages([]);
@@ -547,11 +509,7 @@ function App() {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
-      Object.values(peerRefs.current).forEach(peer => {
-        if (peer && typeof peer.destroy === 'function') {
-          peer.destroy();
-        }
-      });
+      Object.values(peerConnectionsRef.current).forEach(call => call.close());
     };
   }, []);
 
